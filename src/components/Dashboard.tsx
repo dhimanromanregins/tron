@@ -2,11 +2,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useWallet } from "@tronweb3/tronwallet-adapter-react-hooks";
 import { TronWeb } from "tronweb";
 
-const TRC20_ABI = [
-  { constant: true,  inputs: [{ name: "_owner", type: "address" }], name: "balanceOf", outputs: [{ name: "", type: "uint256" }], type: "function" },
-  { constant: false, inputs: [{ name: "_to", type: "address" }, { name: "_value", type: "uint256" }], name: "transfer", outputs: [{ name: "", type: "bool" }], type: "function" },
-];
-
 const TOKENS = [
   { symbol: "USDT", name: "Tether USD",  address: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", decimals: 6 },
   { symbol: "USDC", name: "USD Coin",    address: "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8", decimals: 6 },

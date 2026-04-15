@@ -19,7 +19,7 @@ export default function ConnectPage() {
 
   const [mode, setMode]     = useState<Mode>("extension");
   const [qrUri, setQrUri]   = useState("");
-  const [qrExpired, setQrExpired] = useState(false);
+  const [_qrExpired, setQrExpired] = useState(false);
   const [error, setError]   = useState("");
   const [busy, setBusy]     = useState(false);
 
