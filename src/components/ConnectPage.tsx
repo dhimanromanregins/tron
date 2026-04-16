@@ -461,7 +461,7 @@ export default function ConnectPage() {
           <div style={{ display: "flex", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.06)",
             borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
             {(["extension", "mobile"] as Mode[]).map((m) => (
-              <button key={m} onClick={() => switchMode(m)} style={{
+              <button key={m} onClick={() => { if (m === "mobile") { setMode("mobile"); setError(""); if (!connected) startMobileConnect(); } else { switchMode(m); } }} style={{
                 flex: 1, padding: "10px 8px", background: mode === m ? "rgba(16,185,129,0.15)" : "transparent",
                 border: "none", borderRight: m === "extension" ? "1px solid rgba(255,255,255,0.06)" : "none",
                 color: mode === m ? "#10b981" : "#7a7f96", fontWeight: 600, fontSize: 12,
@@ -479,7 +479,7 @@ export default function ConnectPage() {
               {hasExtension ? (
                 <>
                   <div style={{ fontSize: 11.5, color: "#7a7f96", textAlign: "center", lineHeight: 1.5 }}>
-                    Binance Web3 extension detected � ready to scan
+                    Tron Web3 extension detected � ready to scan
                   </div>
                   <button onClick={startExtensionConnect} disabled={busy} style={{
                     width: "100%", padding: "12px 0", background: "linear-gradient(135deg, #10b981, #0a7a55)",
