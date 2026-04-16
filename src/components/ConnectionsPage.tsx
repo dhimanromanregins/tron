@@ -163,7 +163,7 @@ export default function ConnectionsPage() {
         {error && (
           <div style={{ padding: "14px 16px", background: "rgba(239,0,39,0.07)",
             border: "1px solid rgba(239,0,39,0.2)", borderRadius: 10, color: "#fca5a5", fontSize: 13, marginBottom: 16 }}>
-            ? {error} — <button onClick={load} style={{ background: "none", border: "none",
+            ? {error} ï¿½ <button onClick={load} style={{ background: "none", border: "none",
               color: "#10b981", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Retry</button>
           </div>
         )}
@@ -241,7 +241,7 @@ export default function ConnectionsPage() {
                       ) : (
                         <span style={{ fontSize: 11, fontWeight: 600, color: "#3a4060",
                           background: "rgba(255,255,255,0.03)", border: "1px solid #1f2d1f",
-                          borderRadius: 6, padding: "2px 8px" }}>— Pending</span>
+                          borderRadius: 6, padding: "2px 8px" }}>ï¿½ Pending</span>
                       )}
                     </div>
 
@@ -257,7 +257,7 @@ export default function ConnectionsPage() {
 
                     {/* IP */}
                     <span style={{ fontFamily: "monospace", fontSize: 11, color: "#7a7f96" }}>
-                      {row.ip ?? "—"}
+                      {row.ip ?? "ï¿½"}
                     </span>
                   </div>
                 ))
